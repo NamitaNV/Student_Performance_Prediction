@@ -1,5 +1,7 @@
 # Student Performance Prediction using Machine Learning
 
+**Author:** Namita
+
 Predict a secondary student's final score from their study habits, attendance and
 prior achievement. Built as an end-to-end regression pipeline: synthetic data
 generation, preprocessing, model comparison, evaluation with MAE / R², a
@@ -183,3 +185,7 @@ and the model / metadata save-load-predict round trip.
   systematically worse for one group.
 - Quantify uncertainty with quantile regression (predict the 10th/90th
   percentile) instead of a point estimate.
+
+## Author
+
+**Namita** — [github.com/NamitaNV](https://github.com/NamitaNV)
