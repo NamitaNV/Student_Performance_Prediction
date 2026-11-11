@@ -6,9 +6,9 @@ Predict a secondary student's final score from their study habits, attendance an
 prior achievement. Built as an end-to-end regression pipeline: synthetic data
 generation, preprocessing, model comparison, evaluation with MAE / R², a
 CLI for scoring a single student, and a Streamlit dashboard over the same
-saved model.
+saved model. Training data can come from CSV or a SQLite database.
 
-**Tech:** Python 3.10+, Pandas, NumPy, Scikit-learn, Matplotlib, Joblib, Streamlit, pytest
+**Tech:** Python 3.10+, Pandas, NumPy, Scikit-learn, Matplotlib, Joblib, SQLite, Streamlit, pytest
 
 ---
 
@@ -67,6 +67,8 @@ reproducible. To use real data instead:
 ```bash
 python train.py --data path/to/your_dataset.csv
 ```
+
+Or keep the rows in SQLite and train from there — see [SQL / SQLite](#sql--sqlite).
 
 Your CSV must contain these columns (extra columns are ignored):
 
