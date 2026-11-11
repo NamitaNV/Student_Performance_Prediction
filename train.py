@@ -4,6 +4,7 @@ Usage:
     python train.py                       # full pipeline on the synthetic dataset
     python train.py --tune                # add grid-search hyperparameter tuning
     python train.py --data data/mine.csv  # train on your own dataset
+    python train.py --db data/students.db # train from a SQLite database
 """
 
 from __future__ import annotations
@@ -24,10 +25,18 @@ from student_perf.config import (
     ID_COLUMN,
     RAW_REQUIRED_COLUMNS,
     SEED,
+    STUDENTS_TABLE,
     TARGET,
     TEST_SIZE,
 )
-from student_perf.data import add_features, load_dataset, split_data
+from student_perf.data import (
+    add_features,
+    load_dataset,
+    load_dataset_from_db,
+    split_data,
+)
+from student_perf.database import write_table
+from student_perf.generate_dataset import generate
 from student_perf.models import baseline_predictions, regression_metrics, train_and_evaluate
 from student_perf.persistence import build_metadata, save_metadata, save_model
 from student_perf.plots import (
@@ -59,7 +68,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train and evaluate models that predict a student's final score."
     )
-    parser.add_argument("--data", type=Path, default=DEFAULT_DATA_PATH, help="Input CSV path.")
+    parser.add_argument(
+        "--data",
+        type=Path,
+        default=None,
+        help=f"Input CSV path (default: {DEFAULT_DATA_PATH}).",
+    )
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=None,
+        help="SQLite database to read training rows from instead of a CSV.",
+    )
+    parser.add_argument(
+        "--query",
+        default=None,
+        help="Read-only SQL query used with --db (default: SELECT * FROM --table).",
+    )
+    parser.add_argument(
+        "--table",
+        default=STUDENTS_TABLE,
+        help=f"Table read from --db when --query is not given (default: {STUDENTS_TABLE}).",
+    )
     parser.add_argument(
         "--regenerate", action="store_true", help="Regenerate the synthetic dataset first."
     )
@@ -74,7 +104,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--n-jobs", type=int, default=-1)
     parser.add_argument("--output-dir", type=Path, default=ARTIFACTS_DIR)
-    return parser.parse_args(argv)
+
+    args = parser.parse_args(argv)
+    if args.query is not None and args.db is None:
+        parser.error("--query requires --db")
+    return args
+
+
+def load_training_data(args: argparse.Namespace) -> tuple[pd.DataFrame, str]:
+    """Load rows from SQLite when ``--db`` is set, otherwise from a CSV."""
+    if args.db is not None:
+        db_path = Path(args.db)
+        if args.regenerate or not db_path.exists():
+            generated = generate(n_students=args.n_students, seed=args.seed)
+            write_table(generated, db_path, table=args.table)
+            print(f"  generated {len(generated)} rows -> {db_path} (table '{args.table}')")
+        raw = load_dataset_from_db(db_path, table=args.table, query=args.query)
+        source = (
+            f"{db_path} (query)"
+            if args.query
+            else f"{db_path} (table '{args.table}')"
+        )
+        return raw, source
+
+    raw = load_dataset(
+        path=args.data or DEFAULT_DATA_PATH,
+        n_students=args.n_students,
+        seed=args.seed,
+        regenerate=args.regenerate,
+    )
+    return raw, str(args.data or DEFAULT_DATA_PATH)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -89,12 +148,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # ------------------------------------------------------------------ data
     print("\n[1/6] Loading data")
-    raw = load_dataset(
-        path=args.data,
-        n_students=args.n_students,
-        seed=args.seed,
-        regenerate=args.regenerate,
-    )
+    raw, source = load_training_data(args)
+    print(f"  source: {source}")
     print(f"  rows: {len(raw)}   columns: {raw.shape[1]}")
     print(f"  target '{TARGET}': mean={raw[TARGET].mean():.2f}  sd={raw[TARGET].std():.2f}")
 

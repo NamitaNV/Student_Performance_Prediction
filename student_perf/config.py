@@ -10,6 +10,8 @@ ARTIFACTS_DIR = ROOT_DIR / "artifacts"
 FIGURES_DIR = ARTIFACTS_DIR / "figures"
 
 DEFAULT_DATA_PATH = DATA_DIR / "students.csv"
+DEFAULT_DB_PATH = DATA_DIR / "students.db"
+STUDENTS_TABLE = "students"
 MODEL_PATH = ARTIFACTS_DIR / "model.joblib"
 METADATA_PATH = ARTIFACTS_DIR / "model_metadata.json"
 METRICS_PATH = ARTIFACTS_DIR / "metrics.json"

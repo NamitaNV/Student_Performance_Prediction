@@ -21,7 +21,14 @@ python train.py                 # generate data, train 4 models, evaluate, save 
 python train.py --tune          # same, with grid-search tuning for RF / GB / Ridge
 python predict.py --study-hours 14 --attendance 0.94 --previous-score 78
 streamlit run app.py            # interactive dashboard
-python -m pytest -q             # 21 unit tests
+python -m pytest -q             # unit tests
+```
+
+Training data can also live in SQLite:
+
+```bash
+python db.py import             # data/students.csv -> data/students.db
+python train.py --db data/students.db
 ```
 
 `train.py` prints a full report, writes `artifacts/model.joblib` +
@@ -35,13 +42,15 @@ python -m pytest -q             # 21 unit tests
 student_perf/
   config.py             paths, feature lists, score bands
   generate_dataset.py   synthetic data generator (offline, reproducible)
-  data.py               loading, validation, feature engineering, train/test split
+  data.py               loading (CSV / SQLite), validation, feature engineering, split
+  database.py           SQLite helpers: import, table reads, read-only queries
   preprocess.py         ColumnTransformer pipeline (impute -> scale / one-hot)
   models.py             model zoo, MAE/RMSE/R², k-fold CV, grid search
   plots.py              Matplotlib figures (Agg backend)
   persistence.py        joblib + JSON metadata, single-record prediction
 train.py                end-to-end training CLI
 predict.py              single-student / batch prediction CLI
+db.py                   SQLite import / tables / query CLI
 app.py                  Streamlit dashboard over the saved model
 tests/                  pytest suite
 ```
@@ -70,9 +79,45 @@ Your CSV must contain these columns (extra columns are ignored):
 
 Missing columns raise an explicit `ValueError` listing what is absent.
 
+## SQL / SQLite
+
+SQLite is built into Python, so no extra dependency is needed. Import the CSV
+once, then train straight from the database:
+
+```bash
+python db.py import --csv data/students.csv --db data/students.db
+python db.py tables --db data/students.db
+python db.py query --db data/students.db --sql "SELECT grade, COUNT(*) AS n, AVG(final_score) AS mean_score FROM students GROUP BY grade"
+python train.py --db data/students.db
+```
+
+`db.py import` generates the synthetic `data/students.csv` first if it does not
+exist yet, so the command works on a fresh clone.
+
+`train.py` also accepts a read-only query and a different table name:
+
+```bash
+python train.py --db data/students.db --table students
+python train.py --db data/students.db --query "SELECT * FROM students WHERE attendance_rate > 0.8"
+```
+
+If the database file does not exist, training generates the synthetic data into
+it automatically. `--regenerate` overwrites an existing table with a fresh
+synthetic dataset:
+
+```bash
+python train.py --db data/students.db --regenerate --n-students 5000
+```
+
+`db.py query` only displays rows by default (`--limit 0` shows everything).
+Connections are opened read-only, so the CLI cannot modify the data. The same
+rules apply to `student_perf.database.read_table`; write with
+`student_perf.data.export_dataset_to_db` to validate the schema first, or with
+`student_perf.database.write_table` for a raw write.
+
 ## Methodology
 
-1. **Generate / load** the dataset and validate the required schema.
+1. **Generate / load** the dataset (CSV or SQLite) and validate the required schema.
 2. **Feature engineering** — three interaction features:
    `study_attendance_interaction`, `study_hours_per_absence`,
    `prior_performance` (mean of previous and assignment score).
@@ -174,7 +219,8 @@ the sidebar to drop the cached pipeline.
 engineering, split reproducibility and disjointness, the preprocessor under
 missing values and unseen categories, that the pipelines beat the mean-only
 baseline, that the random forest is at least competitive with linear regression,
-and the model / metadata save-load-predict round trip.
+the SQLite import / read / query round trip, training from a database, and the
+model / metadata save-load-predict round trip.
 
 ## Possible next steps
 

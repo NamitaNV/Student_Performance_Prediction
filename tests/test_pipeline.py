@@ -20,7 +20,20 @@ from student_perf.config import (
     TARGET,
     score_band,
 )
-from student_perf.data import add_features, load_dataset, split_data, validate_columns
+from student_perf.data import (
+    add_features,
+    export_dataset_to_db,
+    load_dataset,
+    load_dataset_from_db,
+    split_data,
+    validate_columns,
+)
+from student_perf.database import (
+    list_tables,
+    read_table,
+    resolve_database_path,
+    write_table,
+)
 from student_perf.generate_dataset import generate
 from student_perf.models import baseline_predictions, regression_metrics
 from student_perf.persistence import build_metadata, predict_one, save_metadata, save_model
@@ -162,6 +175,98 @@ def test_load_dataset_generates_when_missing(tmp_path: Path):
     frame = load_dataset(path=csv_path, n_students=50, seed=1)
     assert csv_path.exists()
     assert len(frame) == 50
+
+
+def test_sqlite_round_trips_the_dataset(tmp_path: Path, raw):
+    db_path = tmp_path / "nested" / "students.db"
+    written = write_table(raw, db_path)
+
+    assert written == db_path
+    assert db_path.exists()
+    reloaded = read_table(db_path)
+    assert list(reloaded.columns) == list(raw.columns)
+    pd.testing.assert_frame_equal(reloaded, raw, check_dtype=False)
+
+
+def test_sqlite_query_returns_a_subset(tmp_path: Path, raw):
+    db_path = tmp_path / "students.db"
+    write_table(raw, db_path)
+
+    subset = read_table(
+        db_path,
+        query="SELECT student_id, final_score FROM students WHERE final_score >= 90",
+    )
+    assert list(subset.columns) == ["student_id", "final_score"]
+    assert (subset["final_score"] >= 90).all()
+
+
+def test_read_table_reports_unknown_table(tmp_path: Path, raw):
+    db_path = tmp_path / "students.db"
+    write_table(raw, db_path)
+
+    with pytest.raises(ValueError, match="not found"):
+        read_table(db_path, table="missing_table")
+
+
+def test_list_tables_and_sqlite_url(tmp_path: Path, raw):
+    db_path = tmp_path / "students.db"
+    write_table(raw, db_path, table="cohort_2026")
+
+    assert list_tables(db_path) == ["cohort_2026"]
+    assert resolve_database_path(f"sqlite:///{db_path.as_posix()}") == db_path
+    assert list_tables(f"sqlite:///{db_path.as_posix()}") == ["cohort_2026"]
+
+
+def test_load_dataset_from_db_validates_columns(tmp_path: Path, raw):
+    db_path = tmp_path / "students.db"
+    write_table(raw, db_path)
+
+    loaded = load_dataset_from_db(db_path)
+    pd.testing.assert_frame_equal(loaded, raw, check_dtype=False)
+
+    broken = tmp_path / "broken.db"
+    write_table(raw.drop(columns=["attendance_rate"]), broken)
+    with pytest.raises(ValueError, match="missing required columns"):
+        load_dataset_from_db(broken)
+
+
+def test_export_dataset_to_db_rejects_missing_columns(tmp_path: Path, raw):
+    db_path = tmp_path / "students.db"
+    with pytest.raises(ValueError, match="missing required columns"):
+        export_dataset_to_db(raw.drop(columns=[TARGET]), db_path)
+    assert not db_path.exists()
+
+
+def test_train_loads_training_data_from_sqlite(tmp_path: Path, raw):
+    import train
+
+    db_path = tmp_path / "students.db"
+    write_table(raw, db_path)
+
+    loaded, source = train.load_training_data(train.parse_args(["--db", str(db_path)]))
+    pd.testing.assert_frame_equal(loaded, raw, check_dtype=False)
+    assert str(db_path) in source
+
+
+def test_train_generates_a_missing_database(tmp_path: Path):
+    import train
+
+    db_path = tmp_path / "nested" / "students.db"
+    args = train.parse_args(
+        ["--db", str(db_path), "--n-students", "50", "--seed", "1"]
+    )
+    loaded, _ = train.load_training_data(args)
+
+    assert db_path.exists()
+    assert len(loaded) == 50
+    assert list_tables(db_path) == ["students"]
+
+
+def test_train_query_requires_db():
+    import train
+
+    with pytest.raises(SystemExit):
+        train.parse_args(["--query", "SELECT * FROM students"])
 
 
 def test_save_model_and_metadata_round_trip(tmp_path: Path, engineered, raw):

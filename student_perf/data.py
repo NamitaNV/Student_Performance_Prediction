@@ -12,8 +12,10 @@ from student_perf.config import (
     ID_COLUMN,
     RAW_REQUIRED_COLUMNS,
     SEED,
+    STUDENTS_TABLE,
     TARGET,
 )
+from student_perf.database import read_table, write_table
 from student_perf.generate_dataset import generate
 
 
@@ -46,6 +48,28 @@ def load_dataset(
 
     validate_columns(frame)
     return frame
+
+
+def load_dataset_from_db(
+    database: str | Path,
+    table: str = STUDENTS_TABLE,
+    query: str | None = None,
+) -> pd.DataFrame:
+    """Load and validate a dataset from a SQLite table or query."""
+    frame = read_table(database, table=table, query=query)
+    validate_columns(frame)
+    return frame
+
+
+def export_dataset_to_db(
+    frame: pd.DataFrame,
+    database: str | Path,
+    table: str = STUDENTS_TABLE,
+    if_exists: str = "replace",
+) -> Path:
+    """Validate a dataset and write it to a SQLite table."""
+    validate_columns(frame)
+    return write_table(frame, database, table=table, if_exists=if_exists)
 
 
 def add_features(frame: pd.DataFrame) -> pd.DataFrame:
